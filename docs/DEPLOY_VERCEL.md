@@ -29,14 +29,19 @@ The dice game uses **Vercel KV** for balances and pending bets.
 
 ## 3. Environment variables (Vercel)
 
-In Vercel → **Settings** → **Environment Variables**, add:
+Run from this folder (with `.env` containing `CRUSTOCEAN_USER`, `CRUSTOCEAN_PASS`, `WEBHOOK_URL`, `CRUSTOCEAN_AGENCY_ID`):
 
-| Variable | Description | Where used |
-|----------|-------------|------------|
-| `CRUSTOCEAN_API_URL` | `https://api.crustocean.chat` | API base URL |
-| `CRUSTOCEAN_USER_TOKEN` | User JWT (for resolving @username in /dicebet) | Optional; get from browser Local Storage after login |
+```bash
+npm run env:vercel
+```
 
-**Getting `CRUSTOCEAN_USER_TOKEN`:** Log in at [crustocean.chat](https://crustocean.chat) → DevTools → Application → Local Storage → copy `crustocean_token`. You can also use the script `npm run env:vercel` to push `CRUSTOCEAN_API_URL` and a fresh token from your `.env` (requires `CRUSTOCEAN_USER` and `CRUSTOCEAN_PASS` locally).
+This generates the global hook key from Crustocean and pushes `CRUSTOCEAN_API_URL` and `CRUSTOCEAN_HOOK_KEY` to your Vercel project. The hook key is required for `/dicebet @username` (resolving usernames).
+
+| Variable | Description | Set by |
+|----------|-------------|--------|
+| `CRUSTOCEAN_API_URL` | `https://api.crustocean.chat` | `npm run env:vercel` |
+| `CRUSTOCEAN_HOOK_KEY` | Global hook key (one per webhook) | `npm run env:vercel` |
+
 
 **Do not** commit `.env` or store secrets in the repo. Use Vercel’s env UI or CLI for production.
 
@@ -50,6 +55,7 @@ After deploy, register your slash commands so Crustocean knows where to send web
 
 ```bash
 npm run setup
+npm run env:vercel
 ```
 
 This creates/updates the custom commands in the given agency. Users in that agency can then use `/custom` to list commands and (if the hook is installable) others can run `/hook install dicebot` in their own agencies (after you’ve published from a public agency).
@@ -68,5 +74,7 @@ Use **ngrok** or similar to expose `http://localhost:3000/api/dice-game` if you 
 
 1. Deploy → `vercel`  
 2. Add KV storage and connect to project  
-3. Set env vars in Vercel (and optionally run `npm run env:vercel`)  
-4. Set `.env` locally with `WEBHOOK_URL` and agency credentials, then `npm run setup`
+3. Set `.env` locally with `CRUSTOCEAN_USER`, `CRUSTOCEAN_PASS`, `CRUSTOCEAN_AGENCY_ID`, `WEBHOOK_URL`  
+4. Run `npm run setup` to register commands  
+5. Run `npm run env:vercel` to push `CRUSTOCEAN_HOOK_KEY` to Vercel  
+6. Redeploy: `vercel --prod`

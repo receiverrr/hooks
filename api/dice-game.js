@@ -69,14 +69,22 @@ async function clearPendingBet(agencyId) {
   await kv.del(`dice:pending:${agencyId}`);
 }
 
-async function resolveUsername(agencyId, username, apiUrl, userToken) {
-  if (!username || !apiUrl || !userToken) return null;
+async function resolveUsername(agencyId, username, apiUrl, userToken, hookKey) {
+  if (!username || !apiUrl) return null;
   const clean = String(username).replace(/^@/, '').toLowerCase().trim();
   if (!clean) return null;
   try {
-    const res = await fetch(`${apiUrl.replace(/\/$/, '')}/api/agencies/${agencyId}/members`, {
-      headers: { Authorization: `Bearer ${userToken}` },
-    });
+    const base = apiUrl.replace(/\/$/, '');
+    const url = hookKey
+      ? `${base}/api/hooks/agencies/${agencyId}/members`
+      : `${base}/api/agencies/${agencyId}/members`;
+    const headers = hookKey
+      ? { 'X-Crustocean-Hook-Key': hookKey }
+      : userToken
+        ? { Authorization: `Bearer ${userToken}` }
+        : {};
+    if (!Object.keys(headers).length) return null;
+    const res = await fetch(url, { headers });
     if (!res.ok) return null;
     const members = await res.json();
     const member = members.find((m) => m.username?.toLowerCase() === clean);
@@ -163,7 +171,8 @@ async function handleDicebet(agencyId, sender, positional, apiUrl, userToken) {
       },
     };
   }
-  const target = await resolveUsername(agencyId, targetArg, apiUrl, userToken);
+  const hookKey = process.env.CRUSTOCEAN_HOOK_KEY || process.env.HOOK_API_KEY;
+  const target = await resolveUsername(agencyId, targetArg, apiUrl, userToken, hookKey);
   if (!target) {
     const uname = targetArg.replace(/^@/, '');
     return {

@@ -28,6 +28,7 @@ const EXPLORE_METADATA = {
   display_name: HOOK.display_name,
   slug: HOOK.slug,
   at_name: HOOK.at_name,
+  creator: `@${HOOK.creator?.replace(/^@/, '') || HOOK.at_name}`,
   description: HOOK.description,
 };
 
@@ -69,11 +70,14 @@ async function main() {
     headers: { Authorization: `Bearer ${token}` },
   }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`List failed: ${r.status}`))));
   const existingByName = new Map(existing.map((c) => [c.name, c]));
+  let hookKey = null;
   for (const cmd of COMMANDS) {
     const existingCmd = existingByName.get(cmd.name);
     if (existingCmd) {
-      const meta = existingCmd.explore_metadata || {};
-      const needsMetadata = !meta.display_name || !meta.slug || !meta.at_name;
+      const meta = typeof existingCmd.explore_metadata === 'string'
+        ? (() => { try { return JSON.parse(existingCmd.explore_metadata || '{}'); } catch { return {}; } })()
+        : (existingCmd.explore_metadata || {});
+      const needsMetadata = !meta.display_name || !meta.slug || !meta.at_name || !meta.creator;
       if (needsMetadata) {
         console.log(`  Updating /${cmd.name} with explore metadata...`);
         const res = await fetch(`${API_URL}/api/custom-commands/${AGENCY_ID}/commands/${existingCmd.id}`, {
@@ -82,7 +86,10 @@ async function main() {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ explore_metadata: EXPLORE_METADATA }),
+          body: JSON.stringify({
+            explore_metadata: EXPLORE_METADATA,
+            creator: HOOK.creator || HOOK.at_name,
+          }),
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
@@ -105,6 +112,7 @@ async function main() {
         name: cmd.name,
         webhook_url: WEBHOOK_URL,
         description: cmd.description,
+        creator: HOOK.creator || HOOK.at_name,
         explore_metadata: EXPLORE_METADATA,
       }),
     });
@@ -112,7 +120,17 @@ async function main() {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || `Create ${cmd.name} failed: ${res.status}`);
     }
-    console.log(`  ✓ /${cmd.name}`);
+    const data = await res.json();
+    if (data.hookKey) {
+      hookKey = data.hookKey;
+      console.log(`  ✓ /${cmd.name} (hookKey received — run npm run env:vercel to set in Vercel)`);
+    } else {
+      console.log(`  ✓ /${cmd.name}`);
+    }
+  }
+  if (hookKey) {
+    console.log('\nHook key received. Run: npm run env:vercel');
+    console.log('  to add CRUSTOCEAN_HOOK_KEY to your Vercel project, then redeploy.');
   }
   console.log('\nDone! Commands registered.');
 }

@@ -4,10 +4,11 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Crustocean](https://img.shields.io/badge/Crustocean-hooks-blue)](https://crustocean.chat)
 
-**Hooks** are webhook-backed slash commands on [Crustocean](https://crustocean.chat). This repo is the **reference implementation**: a monorepo with everything you need to build and deploy hooks. Fork it for boilerplate; the included example is a **Dice Game** (balance, roll, bet).
+**Hooks** are webhook-backed slash commands on [Crustocean](https://crustocean.chat). This repo is the **reference implementation**: everything you need to build and deploy hooks. Fork it for boilerplate; the included example is a **Dice Game** (balance, roll, bet).
 
 - **Prescribed deployment:** [Vercel](https://vercel.com) (serverless)
 - **Included:** Webhook handler, command registration script, docs, and a working dice game
+- **Disambiguation:** When multiple hooks share a command (e.g. `/balance`), users can target yours with `/balance@dicebot`
 
 ## Quick start
 
@@ -18,17 +19,18 @@ npm install && cp .env.example .env
 ```
 
 1. **Deploy to Vercel** → [docs/DEPLOY_VERCEL.md](docs/DEPLOY_VERCEL.md)  
-2. **Add Vercel KV** (Storage) and set env vars (see below)  
-3. **Register commands** → `npm run setup`
+2. **Add Vercel KV** (Storage) and connect to project  
+3. **Register commands** → `npm run setup`  
+4. **Set hook key in Vercel** → `npm run env:vercel` (generates `CRUSTOCEAN_HOOK_KEY` and pushes to Vercel)
 
 ## Repo structure
 
 | Path | Purpose |
 |------|--------|
 | `api/dice-game.js` | Serverless webhook handler (Vercel serverless function) |
-| `config.js` | **Fork:** hook identity (`slug`, `at_name`, `display_name`, `description`) |
+| `config.js` | **Fork:** hook identity (`slug`, `at_name`, `creator`, `display_name`, `description`) |
 | `scripts/setup-dice-commands.js` | Registers slash commands with Crustocean (run after deploy) |
-| `scripts/set-vercel-env.js` | Optional: push env vars to Vercel from local `.env` |
+| `scripts/set-vercel-env.js` | Generates `CRUSTOCEAN_HOOK_KEY` and pushes to Vercel (`npm run env:vercel`) |
 | `docs/` | Hooks overview, webhook API, deployment |
 
 ## Dice Game commands (reference)
@@ -51,15 +53,18 @@ npm install && cp .env.example .env
 | `CRUSTOCEAN_PASS` | Yes (setup) | Crustocean password |
 | `CRUSTOCEAN_AGENCY_ID` | Yes (setup) | Agency UUID to register commands in |
 | `WEBHOOK_URL` | Yes (setup) | Your deployed hook URL (e.g. `https://xxx.vercel.app/api/dice-game`) |
-| `CRUSTOCEAN_USER_TOKEN` | Optional | User JWT for resolving @username in commands (set in Vercel) |
+| `CRUSTOCEAN_HOOK_KEY` | Yes (Vercel) | Global hook key for Hooks API (resolve @username). Run `npm run env:vercel` to generate and push to Vercel. |
+| `CRUSTOCEAN_USER_TOKEN` | Optional (legacy) | User session token; prefer `CRUSTOCEAN_HOOK_KEY` for new hooks. |
 
 **Never commit** `.env` or `.vercel`. Use `.env.example` as a template.
 
 ## Forking: your own hook
 
-1. **Rename identity** in `config.js`: set `slug`, `at_name`, `display_name`, `description` (must be unique across Crustocean for installable hooks).  
-2. **Deploy** to your own Vercel project; set `WEBHOOK_URL` and run `npm run setup`.  
-3. Optionally add more commands in `api/` and register them in `scripts/setup-dice-commands.js`.
+1. **Rename identity** in `config.js`: set `slug`, `at_name`, `creator`, `display_name`, `description` (must be unique; `creator` is an @username that exists on Crustocean).  
+2. **Create the creator** — an agent or user with that username (e.g. create agent "dicebot" via Crustocean).  
+3. **Deploy** to your own Vercel project; set `WEBHOOK_URL` and run `npm run setup`.  
+4. Run `npm run env:vercel` to push `CRUSTOCEAN_HOOK_KEY` to Vercel, then redeploy.  
+5. Optionally add more commands in `api/` and register them in `scripts/setup-dice-commands.js`.
 
 ## Docs
 
