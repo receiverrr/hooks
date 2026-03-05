@@ -68,8 +68,65 @@ When creating/updating a command, set `explore_metadata` so your hook can be dis
 | `creator` | Yes | @username of hook creator. Must exist on Crustocean. Fetchable via `GET /api/users/:username`. |
 | `display_name` | No | Name on Explore / modals |
 | `description` | No | Shown on card and in detail modal |
+| `default_invoke_permission` | No | `open`, `closed`, or `whitelist`. Default: `open` |
 
 `slug` and `at_name` must be **globally unique** among public hooks. The reference implementation sets these in `config.js` and passes them in the setup script.
+
+These fields are also promoted to the `hooks` table as first-class columns. The `explore_metadata` JSONB is still written for backward compatibility.
+
+## Hook CRUD API
+
+Hooks are first-class entities with their own REST endpoints:
+
+### Look up by slug
+
+```
+GET /api/hooks/by-slug/:slug
+```
+
+No auth required. Returns hook identity, transparency fields, and commands.
+
+### Look up by ID
+
+```
+GET /api/hooks/by-id/:hookId
+```
+
+No auth required. Same response shape.
+
+### Update hook (creator only)
+
+```
+PATCH /api/hooks/by-id/:hookId
+Authorization: Bearer <user-token>
+
+{
+  "name": "New Display Name",
+  "description": "Updated description",
+  "default_invoke_permission": "open",
+  "enabled": true
+}
+```
+
+All fields optional. Changes to `name`, `description`, and `default_invoke_permission` are also propagated to `explore_metadata` on all linked commands for backward compatibility.
+
+### Rotate hook key (creator only)
+
+```
+POST /api/hooks/by-id/:hookId/rotate-key
+Authorization: Bearer <user-token>
+```
+
+Returns `{ "hookKey": "new-hex-key" }`. Old key is immediately invalidated.
+
+### Revoke hook key (creator only)
+
+```
+DELETE /api/hooks/by-id/:hookId/revoke-key
+Authorization: Bearer <user-token>
+```
+
+Deletes the hooks row entirely. **Irreversible.** Commands remain but lose their hook_id link.
 
 ## Limits
 

@@ -97,18 +97,14 @@ async function resolveUsername(agencyId, username, apiUrl, userToken, hookKey) {
 async function handleGetshells(agencyId, sender) {
   const newBalance = await addBalance(agencyId, sender.userId, SHELLS_PER_GET);
   const name = sender.displayName || sender.username;
+  const line = `${name} received 1,000 Shells! Balance: ${newBalance.toLocaleString()} Shells.`;
   return {
-    content: `${name} received 1,000 Shells! Balance: ${newBalance.toLocaleString()} Shells.`,
+    content: line,
     type: 'tool_result',
     broadcast: true,
     metadata: {
       content_spans: [
-        { text: name, color: C.accent },
-        { text: ' received ', color: C.muted },
-        { text: '1,000 Shells', color: C.gold },
-        { text: '! Balance: ', color: C.muted },
-        { text: newBalance.toLocaleString(), color: C.accent },
-        { text: ' Shells.', color: C.muted },
+        { text: line, color: C.accent },
       ],
     },
   };
@@ -136,16 +132,14 @@ async function handleBalance(agencyId, sender) {
 async function handleDice(agencyId, sender) {
   const roll = roll1d6();
   const name = sender.displayName || sender.username;
+  const line = `${name} rolled a dice and landed on ${roll}.`;
   return {
-    content: `${name} rolled a dice and landed on ${roll}.`,
+    content: line,
     type: 'tool_result',
     broadcast: true,
     metadata: {
       content_spans: [
-        { text: name, color: C.accent },
-        { text: ' rolled a dice and landed on ', color: C.muted },
-        { text: String(roll), color: C.gold },
-        { text: '.', color: C.muted },
+        { text: line, color: C.accent },
       ],
     },
   };

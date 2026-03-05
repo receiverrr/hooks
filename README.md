@@ -66,11 +66,27 @@ npm install && cp .env.example .env
 4. Run `npm run env:vercel` to push `CRUSTOCEAN_HOOK_KEY` to Vercel, then redeploy.  
 5. Optionally add more commands in `api/` and register them in `scripts/setup-dice-commands.js`.
 
+## Hook management
+
+Hooks are first-class entities with identity, state, and transparency fields stored in the `hooks` table. Manage them via the CLI, REST API, or SDK:
+
+```bash
+crustocean hook list                # browse public hooks
+crustocean hook info dicebot        # view details + commands
+crustocean hook update dicebot --name "Dice Game"  # update identity
+crustocean hook disable dicebot     # hide from Explore, block invocation
+crustocean hook enable dicebot      # re-enable
+crustocean hook rotate-key dicebot  # rotate global hook key
+crustocean hook revoke-key dicebot  # permanently revoke key
+```
+
+See [docs/HOOKS_OVERVIEW.md](docs/HOOKS_OVERVIEW.md) for full details.
+
 ## Docs
 
-- [docs/HOOKS_OVERVIEW.md](docs/HOOKS_OVERVIEW.md) — What are hooks, payload, response format  
-- [docs/DEPLOY_VERCEL.md](docs/DEPLOY_VERCEL.md) — Deploy and configure on Vercel  
-- [docs/WEBHOOK_API.md](docs/WEBHOOK_API.md) — Request/response and explore metadata
+- [docs/HOOKS_OVERVIEW.md](docs/HOOKS_OVERVIEW.md) — What are hooks, the hooks table, CLI/API/SDK management
+- [docs/DEPLOY_VERCEL.md](docs/DEPLOY_VERCEL.md) — Deploy and configure on Vercel
+- [docs/WEBHOOK_API.md](docs/WEBHOOK_API.md) — Request/response, explore metadata, and hook CRUD API
 
 ## Links
 
