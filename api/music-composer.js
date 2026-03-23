@@ -6,18 +6,18 @@
  * - Description: Generate original music tracks, beats, songs or instrumentals from a text prompt
  * - Creator: @crustobeats
  *
- * This endpoint uses Suno generation APIs and returns a consistent response envelope:
+ * This endpoint uses https://api.sunoapi.org and returns a consistent response envelope:
  *   { success, message, data }
  *
  * Basic rate-limiting note:
  * - Avoid rapid retries from clients.
- * - Polling uses a conservative interval to reduce API pressure.
+ * - Polling runs every ~10 seconds to reduce API pressure.
  */
 
-const SUNO_API_BASE_URL = process.env.SUNO_API_BASE_URL || 'https://api.sunoapi.org';
-const SUNO_MODEL = 'v3.5';
-const POLL_INTERVAL_MS = 4000;
-const MAX_POLL_ATTEMPTS = 45;
+const SUNO_API_BASE_URL = 'https://api.sunoapi.org';
+const SUNO_MODEL = 'V4_5ALL';
+const POLL_INTERVAL_MS = 10000; // 10 seconds
+const MAX_POLL_ATTEMPTS = 18; // ~3 minutes total
 
 function parsePrompt(body) {
   const rawPrompt = body?.prompt;
@@ -42,44 +42,13 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function getTaskId(payload) {
-  return (
-    payload?.task_id ||
-    payload?.taskId ||
-    payload?.id ||
-    payload?.data?.task_id ||
-    payload?.data?.taskId ||
-    payload?.data?.id ||
-    null
-  );
-}
-
-function getFirstTrack(payload) {
-  const candidates = [
-    payload?.data?.songs,
-    payload?.data?.clips,
-    payload?.data?.results,
-    payload?.songs,
-    payload?.clips,
-    payload?.results,
-  ];
-
-  for (const group of candidates) {
-    if (Array.isArray(group) && group.length > 0) {
-      return group[0];
-    }
-  }
-  return payload?.data?.song || payload?.song || null;
-}
-
-function isTerminalStatus(status) {
-  const s = String(status || '').toLowerCase();
-  return ['completed', 'succeeded', 'success', 'done', 'failed', 'error', 'cancelled'].includes(s);
-}
-
-function isSuccessStatus(status) {
-  const s = String(status || '').toLowerCase();
-  return ['completed', 'succeeded', 'success', 'done'].includes(s);
+function sanitizeTitleFromPrompt(prompt) {
+  const cleaned = prompt
+    .replace(/\s+/g, ' ')
+    .replace(/[^\w\s-]/g, '')
+    .trim();
+  const short = cleaned.slice(0, 40).trim() || 'Untitled';
+  return `Crustobeats - ${short}`;
 }
 
 async function sunoRequest(path, options) {
@@ -107,26 +76,29 @@ async function sunoRequest(path, options) {
 }
 
 async function createSunoTask(prompt) {
-  // "custom mode" request body for prompt-led generation on v3.5.
+  // Default to custom mode so title/style can be controlled.
   const payload = await sunoRequest('/api/v1/generate', {
     method: 'POST',
     body: JSON.stringify({
-      model: SUNO_MODEL,
       prompt,
-      custom: true,
+      customMode: true,
+      style: 'various genres, energetic, cinematic, etc.',
+      title: sanitizeTitleFromPrompt(prompt),
+      instrumental: false,
+      model: SUNO_MODEL,
     }),
   });
 
-  const taskId = getTaskId(payload);
+  const taskId = payload?.data?.taskId;
   if (!taskId) {
-    throw new Error('Suno API did not return a task id.');
+    throw new Error(payload?.msg || payload?.message || 'Suno API did not return data.taskId.');
   }
   return taskId;
 }
 
 async function getSunoTaskStatus(taskId) {
-  // Common Suno status endpoint pattern for generation tasks.
-  return sunoRequest(`/api/v1/generate/${taskId}`, {
+  // Poll task status until SUCCESS or timeout.
+  return sunoRequest(`/api/v1/generate/record-info?taskId=${encodeURIComponent(taskId)}`, {
     method: 'GET',
   });
 }
@@ -134,37 +106,42 @@ async function getSunoTaskStatus(taskId) {
 async function waitForSunoTask(taskId) {
   for (let attempt = 1; attempt <= MAX_POLL_ATTEMPTS; attempt += 1) {
     const payload = await getSunoTaskStatus(taskId);
-    const status =
-      payload?.status ||
-      payload?.data?.status ||
-      payload?.data?.state ||
-      payload?.state ||
-      'pending';
+    const status = String(payload?.data?.status || payload?.status || 'PENDING').toUpperCase();
 
-    if (isTerminalStatus(status)) {
-      if (!isSuccessStatus(status)) {
-        const errorMessage =
-          payload?.message || payload?.error || payload?.data?.error || `Suno task ended with status "${status}".`;
-        throw new Error(errorMessage);
-      }
+    if (status === 'SUCCESS') {
       return payload;
+    }
+
+    if (status === 'FAILED' || status === 'ERROR') {
+      const errMessage =
+        payload?.data?.errorMessage ||
+        payload?.msg ||
+        payload?.message ||
+        `Suno task failed with status "${status}".`;
+      throw new Error(errMessage);
     }
 
     await sleep(POLL_INTERVAL_MS);
   }
 
-  throw new Error('Timed out waiting for Suno music generation to complete.');
+  throw new Error('Timed out waiting for Suno music generation (about 3 minutes).');
 }
 
 function toClientResponse(prompt, payload) {
-  const track = getFirstTrack(payload) || {};
+  // Expected shape from docs: response.data[0]
+  const track = payload?.data?.response?.data?.[0] || {};
+  const duration =
+    track.duration ??
+    track.duration_seconds ??
+    track.durationSeconds ??
+    null;
 
   return {
     title: track.title || track.name || null,
     audio_url: track.audio_url || track.audioUrl || track.stream_url || track.streamUrl || null,
-    image_url: track.image_url || track.imageUrl || track.cover_url || track.coverUrl || null,
+    image_url: track.image_url || track.imageUrl || track.cover_url || track.coverUrl || track.image || null,
     lyrics: track.lyrics || track.caption || null,
-    duration: track.duration || track.duration_seconds || track.durationSeconds || null,
+    duration,
     prompt,
   };
 }
@@ -195,7 +172,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       success: true,
-      message: 'Music generated successfully.',
+      message: 'Track generated successfully',
       data: composition,
     });
   } catch (err) {
