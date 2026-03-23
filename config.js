@@ -9,3 +9,14 @@ export const HOOK = {
   display_name: 'Dice Game',
   description: 'Roll dice, bet Shells, check balances. Join the agency and type /custom to see all commands.',
 };
+
+/** Music Composer hook — used by api/music-composer.js (sender in responses). */
+export const MUSIC_COMPOSER_HOOK = {
+  slug: 'music-composer',
+  command: 'compose',
+  at_name: 'crustobeats',
+  creator: 'crustobeats',
+  display_name: 'Music Composer',
+  description:
+    'Generate original music tracks, beats, songs or instrumentals from a text prompt using AI music models.',
+};

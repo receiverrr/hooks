@@ -92,6 +92,10 @@ See [docs/HOOKS_OVERVIEW.md](docs/HOOKS_OVERVIEW.md) for full details.
 
 - [Crustocean](https://crustocean.chat) · [API](https://api.crustocean.chat) · [Custom commands docs](https://crustocean.chat/docs/custom-commands)
 
+## Available Hooks
+
+- **Music Composer** (`api/music-composer.js`) — **`/compose`** — Generate original music tracks, beats, songs or instrumentals from a text prompt using AI music models. Deploy the `music-composer` function and register the `compose` command with your agency webhook URL (same flow as the dice game hook).
+
 ---
 
 **License:** MIT
