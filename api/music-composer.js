@@ -1,111 +1,90 @@
 /**
- * Crustocean Hooks — Music Composer
- * Handles: /compose
- * Deploy to Vercel (serverless); add Vercel KV when you add persisted state.
- * Fork: edit config.js (MUSIC_COMPOSER_HOOK) and use your own webhook URL (e.g. …/api/music-composer).
+ * Crustocean Hook: Music Composer (/compose)
+ *
+ * Metadata
+ * - Command: /compose
+ * - Description: Generate original music tracks, beats, songs or instrumentals from a text prompt
+ * - Creator: @crustobeats
+ *
+ * This endpoint is intentionally scaffolded for the next integration step where
+ * an AI music provider will be called. For now, it validates input and returns
+ * a consistent response envelope:
+ *   { success, message, data }
  */
 
-import { MUSIC_COMPOSER_HOOK } from '../config.js';
+/**
+ * Validate and normalize prompt input from request body.
+ * Accepts string values only and enforces a practical max length.
+ */
+function parsePrompt(body) {
+  const rawPrompt = body?.prompt;
 
-const COMMANDS = ['compose'];
-
-// Colors for content_spans (granular formatting)
-const C = {
-  accent: '#a8d8ff',
-  success: '#4ade80',
-  error: '#ff6b6b',
-  gold: '#e6d84a',
-  muted: '#94a3b8',
-};
-
-async function handleCompose(agencyId, sender, positional) {
-  const prompt = positional.join(' ').trim();
-  if (!prompt) {
-    return {
-      content:
-        'Usage: /compose <prompt> — describe the track, genre, mood, tempo, or instruments you want.',
-      type: 'tool_result',
-      broadcast: false,
-      ephemeral: true,
-      metadata: {
-        content_spans: [
-          { text: 'Usage: ', color: C.muted },
-          { text: '/compose', color: C.accent },
-          { text: ' <prompt> — describe the track, genre, mood, tempo, or instruments you want.', color: C.muted },
-        ],
-      },
-    };
+  if (typeof rawPrompt !== 'string') {
+    return { error: 'Invalid input: "prompt" must be a string.' };
   }
-  const name = sender.displayName || sender.username;
-  const line = `${name} requested music: ${prompt}`;
+
+  const prompt = rawPrompt.trim();
+  if (!prompt) {
+    return { error: 'Invalid input: "prompt" is required.' };
+  }
+
+  if (prompt.length > 2000) {
+    return { error: 'Invalid input: "prompt" must be 2000 characters or fewer.' };
+  }
+
+  return { prompt };
+}
+
+/**
+ * Stub for future model integration.
+ * Keep this function boundary so generation logic can be added without
+ * changing API response behavior in the route handler.
+ */
+async function composeMusicFromPrompt(prompt) {
   return {
-    content: line,
-    type: 'tool_result',
-    broadcast: true,
-    metadata: {
-      content_spans: [
-        { text: name, color: C.accent },
-        { text: ' requested music: ', color: C.muted },
-        { text: prompt, color: C.gold },
-      ],
-    },
+    prompt,
+    status: 'queued',
+    provider: null,
+    track_url: null,
+    title: null,
+    lyrics: null,
   };
 }
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return res.status(405).json({
+      success: false,
+      message: 'Method not allowed. Use POST for /compose.',
+      data: null,
+    });
   }
-  const { agencyId, command, positional = [], sender } = req.body || {};
-  if (!agencyId || !command || !sender?.userId) {
-    return res.status(400).json({ error: 'Invalid payload: agencyId, command, sender required' });
-  }
-  const cmd = String(command).toLowerCase().replace(/[^a-z0-9]/g, '');
-  if (!COMMANDS.includes(cmd)) {
-    return res.status(400).json({ error: `Unknown command: ${cmd}` });
-  }
+
   try {
-    let result;
-    switch (cmd) {
-      case 'compose':
-        result = await handleCompose(agencyId, sender, positional);
-        break;
-      default:
-        result = { content: `Unknown command: ${cmd}`, type: 'system', broadcast: false, ephemeral: true };
+    const { prompt, error } = parsePrompt(req.body || {});
+    if (error) {
+      return res.status(400).json({
+        success: false,
+        message: error,
+        data: null,
+      });
     }
+
+    const composition = await composeMusicFromPrompt(prompt);
+
     return res.status(200).json({
-      content: result.content,
-      type: result.type || 'tool_result',
-      metadata: {
-        ...(result.metadata || {}),
-        style: {
-          sender_color: '#a8d8ff',
-          content_color: '#a8d8ff',
-          ...(result.metadata?.style || {}),
-        },
-      },
-      broadcast: result.broadcast !== false,
-      ephemeral: result.ephemeral === true,
-      sender_username: MUSIC_COMPOSER_HOOK.at_name,
-      sender_display_name: `@${MUSIC_COMPOSER_HOOK.at_name}`,
+      success: true,
+      message: 'Compose request accepted. Music generation integration is ready for the next step.',
+      data: composition,
     });
   } catch (err) {
-    console.error('Music composer error:', err);
-    const msg = err.message || 'Unknown error';
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('music-composer handler error:', err);
+
     return res.status(500).json({
-      content: `Something went wrong: ${msg}`,
-      type: 'system',
-      broadcast: false,
-      ephemeral: true,
-      sender_username: MUSIC_COMPOSER_HOOK.at_name,
-      sender_display_name: `@${MUSIC_COMPOSER_HOOK.at_name}`,
-      metadata: {
-        style: { sender_color: '#a8d8ff' },
-        content_spans: [
-          { text: 'Something went wrong: ', color: C.muted },
-          { text: msg, color: C.error },
-        ],
-      },
+      success: false,
+      message: `Failed to process compose request: ${message}`,
+      data: null,
     });
   }
 }
