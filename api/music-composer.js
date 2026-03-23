@@ -6,18 +6,26 @@
  * - Description: Generate original music tracks, beats, songs or instrumentals from a text prompt
  * - Creator: @crustobeats
  *
- * This endpoint uses https://api.sunoapi.org and returns a consistent response envelope:
+ * This endpoint follows Suno Quickstart docs:
+ * https://docs.sunoapi.org/suno-api/quickstart
+ *
+ * Flow:
+ * 1) POST /api/v1/generate
+ * 2) Poll GET /api/v1/generate/record-info?taskId=...
+ * 3) When status is SUCCESS, read response.data.response.data[0]
+ *
+ * Returns a consistent response envelope:
  *   { success, message, data }
  *
  * Basic rate-limiting note:
  * - Avoid rapid retries from clients.
- * - Polling runs every ~10 seconds to reduce API pressure.
+ * - Polling runs every 8 seconds to reduce API pressure.
  */
 
 const SUNO_API_BASE_URL = 'https://api.sunoapi.org';
-const SUNO_MODEL = 'V4_5ALL';
-const POLL_INTERVAL_MS = 10000; // 10 seconds
-const MAX_POLL_ATTEMPTS = 18; // ~3 minutes total
+const DEFAULT_MODEL = 'V4_5';
+const POLL_INTERVAL_MS = 8000; // 8 seconds
+const MAX_POLL_ATTEMPTS = 22; // ~2m56s
 
 function parsePrompt(body) {
   const rawPrompt = body?.prompt;
@@ -38,6 +46,11 @@ function parsePrompt(body) {
   return { prompt };
 }
 
+function parseBoolean(value, fallback) {
+  if (typeof value === 'boolean') return value;
+  return fallback;
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -49,6 +62,12 @@ function sanitizeTitleFromPrompt(prompt) {
     .trim();
   const short = cleaned.slice(0, 40).trim() || 'Untitled';
   return `Crustobeats - ${short}`;
+}
+
+function buildEnhancedPrompt(prompt) {
+  // If user prompt is short, enrich it so Suno gets more musical direction.
+  if (prompt.length >= 40) return prompt;
+  return `${prompt}. Style: energetic, cinematic, modern production, rich instrumentation, polished mix.`;
 }
 
 async function sunoRequest(path, options) {
@@ -75,18 +94,41 @@ async function sunoRequest(path, options) {
   return payload;
 }
 
-async function createSunoTask(prompt) {
-  // Default to custom mode so title/style can be controlled.
+function buildGeneratePayload(body, prompt) {
+  // Quickstart supports simple and custom modes.
+  // We default to custom mode for better control over style + title.
+  const customMode = parseBoolean(body?.customMode, true);
+  const model = typeof body?.model === 'string' && body.model.trim() ? body.model.trim() : DEFAULT_MODEL;
+  const style = typeof body?.style === 'string' && body.style.trim()
+    ? body.style.trim()
+    : 'various genres, energetic, cinematic, polished production';
+  const title = typeof body?.title === 'string' && body.title.trim()
+    ? body.title.trim()
+    : sanitizeTitleFromPrompt(prompt);
+  const instrumental = parseBoolean(body?.instrumental, false);
+
+  if (!customMode) {
+    return {
+      prompt: buildEnhancedPrompt(prompt),
+      customMode: false,
+      model,
+    };
+  }
+
+  return {
+    prompt: buildEnhancedPrompt(prompt),
+    customMode: true,
+    style,
+    title,
+    instrumental,
+    model,
+  };
+}
+
+async function createSunoTask(body, prompt) {
   const payload = await sunoRequest('/api/v1/generate', {
     method: 'POST',
-    body: JSON.stringify({
-      prompt,
-      customMode: true,
-      style: 'various genres, energetic, cinematic, etc.',
-      title: sanitizeTitleFromPrompt(prompt),
-      instrumental: false,
-      model: SUNO_MODEL,
-    }),
+    body: JSON.stringify(buildGeneratePayload(body, prompt)),
   });
 
   const taskId = payload?.data?.taskId;
@@ -97,7 +139,8 @@ async function createSunoTask(prompt) {
 }
 
 async function getSunoTaskStatus(taskId) {
-  // Poll task status until SUCCESS or timeout.
+  // Quickstart polling endpoint:
+  // GET /api/v1/generate/record-info?taskId=<taskId>
   return sunoRequest(`/api/v1/generate/record-info?taskId=${encodeURIComponent(taskId)}`, {
     method: 'GET',
   });
@@ -128,7 +171,7 @@ async function waitForSunoTask(taskId) {
 }
 
 function toClientResponse(prompt, payload) {
-  // Expected shape from docs: response.data[0]
+  // Expected shape from Quickstart: response.data.response.data[0]
   const track = payload?.data?.response?.data?.[0] || {};
   const duration =
     track.duration ??
@@ -139,10 +182,11 @@ function toClientResponse(prompt, payload) {
   return {
     title: track.title || track.name || null,
     audio_url: track.audio_url || track.audioUrl || track.stream_url || track.streamUrl || null,
-    image_url: track.image_url || track.imageUrl || track.cover_url || track.coverUrl || track.image || null,
-    lyrics: track.lyrics || track.caption || null,
+    image_url: null,
+    lyrics: null,
     duration,
     prompt,
+    tags: track.tags || null,
   };
 }
 
@@ -156,8 +200,8 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Input contract: req.body.prompt
-    const { prompt, error } = parsePrompt(req.body || {});
+    const body = req.body || {};
+    const { prompt, error } = parsePrompt(body);
     if (error) {
       return res.status(400).json({
         success: false,
@@ -166,7 +210,7 @@ export default async function handler(req, res) {
       });
     }
 
-    const taskId = await createSunoTask(prompt);
+    const taskId = await createSunoTask(body, prompt);
     const completedPayload = await waitForSunoTask(taskId);
     const composition = toClientResponse(prompt, completedPayload);
 
