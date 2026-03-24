@@ -1,31 +1,37 @@
 /**
- * Crustocean Hook: Music Composer (/compose)
+ * Crustocean Hook: Music Composer
  *
- * Metadata
- * - Command: /compose
- * - Description: Generate original music tracks, beats, songs or instrumentals from a text prompt
- * - Creator: @crustobeats
+ * Command (in chat): /compose <your prompt>
  *
- * This endpoint follows Suno Quickstart docs:
- * https://docs.sunoapi.org/suno-api/quickstart
+ * Examples:
+ *   /compose a dark trap beat about autonomous agents
+ *   /compose chill lo-fi with ocean waves
  *
- * Flow:
- * 1) POST /api/v1/generate
- * 2) Poll GET /api/v1/generate/record-info?taskId=...
- * 3) When status is SUCCESS, read response.data.response.data[0]
+ * Creator: @crustobeats
  *
- * Returns a consistent response envelope:
- *   { success, message, data }
+ * Webhook body (Crustocean → this handler):
+ * - prompt (required): user’s text
+ * - style (optional): genre / vibe string for Suno custom mode
+ * - title (optional): track title; default "Crustobeats - …" from prompt
+ * - instrumental (optional): boolean
  *
- * Basic rate-limiting note:
- * - Avoid rapid retries from clients.
- * - Polling runs every 8 seconds to reduce API pressure.
+ * Suno API (Quickstart): https://docs.sunoapi.org/suno-api/quickstart
+ * Flow: POST /api/v1/generate → poll GET /api/v1/generate/record-info?taskId=…
+ *       → on SUCCESS, read response.data.response.data[0]
+ *
+ * Response shape: { success, message, data } where data is always rich (see toClientResponse).
+ *
+ * Credits & rate limits:
+ * - Each generation consumes Suno API credits; avoid spamming /compose or tight client retries.
+ * - This handler polls Suno every 8s; concurrent room usage can stack cost—monitor your dashboard.
  */
 
 const SUNO_API_BASE_URL = 'https://api.sunoapi.org';
 const DEFAULT_MODEL = 'V4_5';
+const DEFAULT_STYLE = 'various genres, energetic, cinematic, electronic';
 const POLL_INTERVAL_MS = 8000; // 8 seconds
 const MAX_POLL_ATTEMPTS = 22; // ~2m56s
+const SHORT_PROMPT_THRESHOLD = 15;
 
 function parsePrompt(body) {
   const rawPrompt = body?.prompt;
@@ -64,10 +70,14 @@ function sanitizeTitleFromPrompt(prompt) {
   return `Crustobeats - ${short}`;
 }
 
+/**
+ * Suno works best with enough context. Very short prompts get a production-quality nudge.
+ */
 function buildEnhancedPrompt(prompt) {
-  // If user prompt is short, enrich it so Suno gets more musical direction.
-  if (prompt.length >= 40) return prompt;
-  return `${prompt}. Style: energetic, cinematic, modern production, rich instrumentation, polished mix.`;
+  if (prompt.length < SHORT_PROMPT_THRESHOLD) {
+    return `${prompt}. High quality, professional production.`;
+  }
+  return prompt;
 }
 
 async function sunoRequest(path, options) {
@@ -99,9 +109,8 @@ function buildGeneratePayload(body, prompt) {
   // We default to custom mode for better control over style + title.
   const customMode = parseBoolean(body?.customMode, true);
   const model = typeof body?.model === 'string' && body.model.trim() ? body.model.trim() : DEFAULT_MODEL;
-  const style = typeof body?.style === 'string' && body.style.trim()
-    ? body.style.trim()
-    : 'various genres, energetic, cinematic, polished production';
+  const style =
+    typeof body?.style === 'string' && body.style.trim() ? body.style.trim() : DEFAULT_STYLE;
   const title = typeof body?.title === 'string' && body.title.trim()
     ? body.title.trim()
     : sanitizeTitleFromPrompt(prompt);
@@ -170,23 +179,36 @@ async function waitForSunoTask(taskId) {
   throw new Error('Timed out waiting for Suno music generation (about 3 minutes).');
 }
 
-function toClientResponse(prompt, payload) {
-  // Expected shape from Quickstart: response.data.response.data[0]
+function buildShareableMessage({ title, audio_url, prompt }) {
+  const name = title || 'Fresh track';
+  const hook = 'Drop this in the room 🔥';
+  if (audio_url) {
+    return `${name} — ${hook}\n${audio_url}`;
+  }
+  return `${name} — ${hook}${prompt ? ` (“${prompt.slice(0, 80)}${prompt.length > 80 ? '…' : ''}”)` : ''}`;
+}
+
+/**
+ * Stable, Crustocean-friendly payload: every key always present for clients/UI.
+ */
+function toClientResponse(originalPrompt, payload) {
   const track = payload?.data?.response?.data?.[0] || {};
+  const title = track.title || track.name || null;
+  const audio_url =
+    track.audio_url || track.audioUrl || track.stream_url || track.streamUrl || null;
   const duration =
-    track.duration ??
-    track.duration_seconds ??
-    track.durationSeconds ??
-    null;
+    track.duration ?? track.duration_seconds ?? track.durationSeconds ?? null;
+  const tags = track.tags != null ? track.tags : null;
 
   return {
-    title: track.title || track.name || null,
-    audio_url: track.audio_url || track.audioUrl || track.stream_url || track.streamUrl || null,
+    title,
+    audio_url,
     image_url: null,
     lyrics: null,
     duration,
-    prompt,
-    tags: track.tags || null,
+    tags,
+    prompt: originalPrompt,
+    shareable: buildShareableMessage({ title, audio_url, prompt: originalPrompt }),
   };
 }
 

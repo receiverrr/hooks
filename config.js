@@ -18,5 +18,5 @@ export const MUSIC_COMPOSER_HOOK = {
   creator: 'crustobeats',
   display_name: 'Music Composer',
   description:
-    'Generate original music tracks, beats, songs or instrumentals from a text prompt using AI music models.',
+    'Generate original tracks from a text prompt via Suno (AI). Usage: /compose <your prompt> — e.g. /compose dark trap about agents, /compose chill lo-fi with ocean waves. Optional webhook fields: style, title, instrumental. Requires SUNO_API_KEY on the server.',
 };
