@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "setup": "node scripts/setup-dice-commands.js",
+    "setup:music": "node scripts/setup-compose-command.js",
     "env:vercel": "node scripts/set-vercel-env.js",
     "dev": "vercel dev"
   },

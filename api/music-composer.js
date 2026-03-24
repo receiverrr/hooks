@@ -9,22 +9,25 @@
  *
  * Creator: @crustobeats
  *
- * Webhook body (Crustocean → this handler):
- * - prompt (required): user’s text
- * - style (optional): genre / vibe string for Suno custom mode
- * - title (optional): track title; default "Crustobeats - …" from prompt
- * - instrumental (optional): boolean
+ * Register /compose (after Vercel deploy):
+ *   1. Set MUSIC_WEBHOOK_URL=https://<project>.vercel.app/api/music-composer in hooks/.env
+ *   2. From the hooks folder: npm run setup:music
+ *   3. Set SUNO_API_KEY (and optional CRUSTOCEAN_HOOK_KEY) in Vercel env, redeploy
+ *
+ * Crustocean webhook payload (see docs/WEBHOOK_API.md): agencyId, command, rawArgs,
+ * positional[], flags, sender, etc. User text is usually rawArgs or positional (joined).
+ * Nested { data: { prompt, style, ... } } is also merged when present.
+ *
+ * Direct / test POST: flat JSON { "prompt": "..." } still works (no agencyId → API-style JSON response).
  *
  * Suno API (Quickstart): https://docs.sunoapi.org/suno-api/quickstart
- * Flow: POST /api/v1/generate → poll GET /api/v1/generate/record-info?taskId=…
- *       → on SUCCESS, read response.data.response.data[0]
- *
- * Response shape: { success, message, data } where data is always rich (see toClientResponse).
  *
  * Credits & rate limits:
  * - Each generation consumes Suno API credits; avoid spamming /compose or tight client retries.
  * - This handler polls Suno every 8s; concurrent room usage can stack cost—monitor your dashboard.
  */
+
+import { MUSIC_COMPOSER_HOOK } from '../config.js';
 
 const SUNO_API_BASE_URL = 'https://api.sunoapi.org';
 const DEFAULT_MODEL = 'V4_5';
@@ -33,20 +36,56 @@ const POLL_INTERVAL_MS = 8000; // 8 seconds
 const MAX_POLL_ATTEMPTS = 22; // ~2m56s
 const SHORT_PROMPT_THRESHOLD = 15;
 
-function parsePrompt(body) {
-  const rawPrompt = body?.prompt;
+/**
+ * Merge Crustocean + optional nested `data` into one options object for Suno.
+ * Prompt resolution order: body.prompt → body.data.prompt → rawArgs → positional joined.
+ */
+function mergeComposeInput(rawBody) {
+  const body = rawBody && typeof rawBody === 'object' ? rawBody : {};
+  const data = body.data && typeof body.data === 'object' ? body.data : {};
 
-  if (typeof rawPrompt !== 'string') {
-    return { error: 'Invalid input: "prompt" must be a string.' };
+  const fromChat =
+    (typeof body.rawArgs === 'string' && body.rawArgs.trim()) ||
+    (Array.isArray(body.positional) && body.positional.length > 0
+      ? body.positional.join(' ').trim()
+      : '') ||
+    '';
+
+  const explicit =
+    (typeof body.prompt === 'string' && body.prompt.trim()) ||
+    (typeof data.prompt === 'string' && data.prompt.trim()) ||
+    '';
+
+  const prompt = (explicit || fromChat).trim();
+
+  const pick = (key) => (body[key] !== undefined && body[key] !== null ? body[key] : data[key]);
+
+  return {
+    prompt,
+    style: pick('style'),
+    title: pick('title'),
+    instrumental: pick('instrumental'),
+    customMode: pick('customMode'),
+    model: pick('model'),
+    _isCrustoceanWebhook: Boolean(body.agencyId && body.sender?.userId),
+  };
+}
+
+function parsePrompt(promptValue) {
+  if (typeof promptValue !== 'string') {
+    return { error: 'Invalid input: prompt must be a string (or use rawArgs / positional from Crustocean).' };
   }
 
-  const prompt = rawPrompt.trim();
+  const prompt = promptValue.trim();
   if (!prompt) {
-    return { error: 'Invalid input: "prompt" is required.' };
+    return {
+      error:
+        'Missing prompt. In chat use: /compose <your idea> — e.g. /compose chill lo-fi with ocean waves.',
+    };
   }
 
   if (prompt.length > 2000) {
-    return { error: 'Invalid input: "prompt" must be 2000 characters or fewer.' };
+    return { error: 'Invalid input: prompt must be 2000 characters or fewer.' };
   }
 
   return { prompt };
@@ -104,17 +143,23 @@ async function sunoRequest(path, options) {
   return payload;
 }
 
-function buildGeneratePayload(body, prompt) {
+function buildGeneratePayload(composeOpts, prompt) {
   // Quickstart supports simple and custom modes.
   // We default to custom mode for better control over style + title.
-  const customMode = parseBoolean(body?.customMode, true);
-  const model = typeof body?.model === 'string' && body.model.trim() ? body.model.trim() : DEFAULT_MODEL;
+  const customMode = parseBoolean(composeOpts?.customMode, true);
+  const model =
+    typeof composeOpts?.model === 'string' && composeOpts.model.trim()
+      ? composeOpts.model.trim()
+      : DEFAULT_MODEL;
   const style =
-    typeof body?.style === 'string' && body.style.trim() ? body.style.trim() : DEFAULT_STYLE;
-  const title = typeof body?.title === 'string' && body.title.trim()
-    ? body.title.trim()
-    : sanitizeTitleFromPrompt(prompt);
-  const instrumental = parseBoolean(body?.instrumental, false);
+    typeof composeOpts?.style === 'string' && composeOpts.style.trim()
+      ? composeOpts.style.trim()
+      : DEFAULT_STYLE;
+  const title =
+    typeof composeOpts?.title === 'string' && composeOpts.title.trim()
+      ? composeOpts.title.trim()
+      : sanitizeTitleFromPrompt(prompt);
+  const instrumental = parseBoolean(composeOpts?.instrumental, false);
 
   if (!customMode) {
     return {
@@ -134,10 +179,10 @@ function buildGeneratePayload(body, prompt) {
   };
 }
 
-async function createSunoTask(body, prompt) {
+async function createSunoTask(composeOpts, prompt) {
   const payload = await sunoRequest('/api/v1/generate', {
     method: 'POST',
-    body: JSON.stringify(buildGeneratePayload(body, prompt)),
+    body: JSON.stringify(buildGeneratePayload(composeOpts, prompt)),
   });
 
   const taskId = payload?.data?.taskId;
@@ -212,8 +257,34 @@ function toClientResponse(originalPrompt, payload) {
   };
 }
 
+function crustoceanBaseResponse(overrides) {
+  return {
+    type: 'tool_result',
+    sender_username: MUSIC_COMPOSER_HOOK.at_name,
+    sender_display_name: `@${MUSIC_COMPOSER_HOOK.at_name}`,
+    metadata: {
+      style: { sender_color: '#a8d8ff', content_color: '#a8d8ff' },
+    },
+    ...overrides,
+  };
+}
+
 export default async function handler(req, res) {
+  const rawBody = req.body || {};
+  const composeOpts = mergeComposeInput(rawBody);
+  const isCrustocean = composeOpts._isCrustoceanWebhook;
+
   if (req.method !== 'POST') {
+    if (isCrustocean) {
+      return res.status(405).json(
+        crustoceanBaseResponse({
+          content: 'Method not allowed.',
+          broadcast: false,
+          ephemeral: true,
+          type: 'system',
+        })
+      );
+    }
     return res.status(405).json({
       success: false,
       message: 'Method not allowed. Use POST for /compose.',
@@ -222,9 +293,17 @@ export default async function handler(req, res) {
   }
 
   try {
-    const body = req.body || {};
-    const { prompt, error } = parsePrompt(body);
+    const { prompt, error } = parsePrompt(composeOpts.prompt);
     if (error) {
+      if (isCrustocean) {
+        return res.status(200).json(
+          crustoceanBaseResponse({
+            content: error,
+            broadcast: false,
+            ephemeral: true,
+          })
+        );
+      }
       return res.status(400).json({
         success: false,
         message: error,
@@ -232,9 +311,19 @@ export default async function handler(req, res) {
       });
     }
 
-    const taskId = await createSunoTask(body, prompt);
+    const taskId = await createSunoTask(composeOpts, prompt);
     const completedPayload = await waitForSunoTask(taskId);
     const composition = toClientResponse(prompt, completedPayload);
+
+    if (isCrustocean) {
+      return res.status(200).json(
+        crustoceanBaseResponse({
+          content: composition.shareable,
+          broadcast: true,
+          ephemeral: false,
+        })
+      );
+    }
 
     return res.status(200).json({
       success: true,
@@ -244,6 +333,17 @@ export default async function handler(req, res) {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     console.error('music-composer handler error:', err);
+
+    if (isCrustocean) {
+      return res.status(500).json(
+        crustoceanBaseResponse({
+          content: `Something went wrong: ${message}`,
+          broadcast: false,
+          ephemeral: true,
+          type: 'system',
+        })
+      );
+    }
 
     return res.status(500).json({
       success: false,

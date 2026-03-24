@@ -30,7 +30,8 @@ npm install && cp .env.example .env
 | `api/dice-game.js` | Serverless webhook handler (Vercel serverless function) |
 | `api/music-composer.js` | Music Composer hook (`/compose`, Suno API) |
 | `config.js` | **Fork:** hook identity (`slug`, `at_name`, `creator`, `display_name`, `description`) |
-| `scripts/setup-dice-commands.js` | Registers slash commands with Crustocean (run after deploy) |
+| `scripts/setup-dice-commands.js` | Registers dice slash commands (`npm run setup`) |
+| `scripts/setup-compose-command.js` | Registers `/compose` for music-composer (`npm run setup:music`) |
 | `scripts/set-vercel-env.js` | Generates `CRUSTOCEAN_HOOK_KEY` and pushes to Vercel (`npm run env:vercel`) |
 | `docs/` | Hooks overview, webhook API, deployment |
 
@@ -53,7 +54,8 @@ npm install && cp .env.example .env
 | `CRUSTOCEAN_USER` | Yes (setup) | Crustocean username (agency owner) |
 | `CRUSTOCEAN_PASS` | Yes (setup) | Crustocean password |
 | `CRUSTOCEAN_AGENCY_ID` | Yes (setup) | Agency UUID to register commands in |
-| `WEBHOOK_URL` | Yes (setup) | Your deployed hook URL (e.g. `https://xxx.vercel.app/api/dice-game`) |
+| `WEBHOOK_URL` | Yes (dice setup) | Dice webhook URL (e.g. `https://xxx.vercel.app/api/dice-game`) |
+| `MUSIC_WEBHOOK_URL` | Yes (music setup) | Music Composer URL (e.g. `https://xxx.vercel.app/api/music-composer`) for `npm run setup:music` |
 | `CRUSTOCEAN_HOOK_KEY` | Yes (Vercel) | Global hook key for Hooks API (resolve @username). Run `npm run env:vercel` to generate and push to Vercel. |
 | `CRUSTOCEAN_USER_TOKEN` | Optional (legacy) | User session token; prefer `CRUSTOCEAN_HOOK_KEY` for new hooks. |
 | `SUNO_API_KEY` | Yes (Music Composer) | Bearer token for [Suno API](https://docs.sunoapi.org/suno-api/quickstart). Create an account at the provider, open the dashboard/API section, generate a key, and set it in Vercel (Production + Preview) for `api/music-composer`. |
@@ -122,7 +124,7 @@ AI music via **Suno**. In chat, use **`/compose`** with your idea; the webhook r
 1. Deploy this repo to Vercel so `api/music-composer` is live (e.g. `https://<project>.vercel.app/api/music-composer`).
 2. Get **`SUNO_API_KEY`**: sign up at the [Suno API](https://docs.sunoapi.org/suno-api/quickstart) provider, open the dashboard, and create an API key.
 3. In Vercel → Project → Settings → Environment Variables, add `SUNO_API_KEY` (and redeploy).
-4. Register the `compose` command in your agency with that webhook URL (same pattern as the dice hook; you can POST via Crustocean custom-commands API or extend `scripts/setup-dice-commands.js` for a second webhook).
+4. Set `MUSIC_WEBHOOK_URL` in `.env` to that URL, then run **`npm run setup:music`** from the hooks folder (uses `scripts/setup-compose-command.js`).
 
 **Successful JSON** includes `title`, `audio_url`, `image_url`, `lyrics`, `duration`, `tags`, `prompt`, and a **`shareable`** string for pasting in the room.
 
